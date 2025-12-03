@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PlantScanner</string>
+    <string name="plant"><b>PLANT</b></string>
+    <string name="scanner"><i>scanner</i></string>
+    <string name="startBtn">Start app</string>
+    <string name="startPic">Monstera leaves</string>
+    <string name="cameraBtn">Take photo</string>
+    <string name="infoBtn">Help</string>
+    <string name="backBtn">Back</string>
+    <string name="settingsBtn">Settings</string>
+    <string name="title_activity_description">DescriptionActivity</string>
+</resources>
