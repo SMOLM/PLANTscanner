@@ -1,14 +1,18 @@
 package com.example.plantscanner
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -21,16 +25,15 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class CameraActivity : AppCompatActivity() {
+class CameraActivity : BaseActivity() {
     private lateinit var viewFinder: PreviewView
     private lateinit var photoBtn: ImageButton
     private var imageCapture: ImageCapture? = null
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var loadingOverlay: FrameLayout
 
     private val apiKey = BuildConfig.PLANTNET_API_KEY
 
@@ -42,6 +45,7 @@ class CameraActivity : AppCompatActivity() {
         viewFinder = findViewById(R.id.viewFinder)
         photoBtn = findViewById(R.id.photoBtn)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        loadingOverlay = findViewById(R.id.loadingOverlay)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -87,40 +91,80 @@ class CameraActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    private fun showLoading(show: Boolean) {
+        runOnUiThread {
+            loadingOverlay.visibility = if (show) View.VISIBLE else View.GONE
+            photoBtn.isEnabled = !show
+        }
+    }
     private fun takePhoto() {
         val imageCapture = imageCapture ?: return
 
-        val photoFile = File(
-            externalCacheDir,
-            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-                .format(System.currentTimeMillis()) + ".jpg"
-        )
+        val imageUri = createImageUri()
 
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        if (imageUri == null) {
+            showErrorDialog("Błąd tworzenia pliku zdjęcia")
+            return
+        }
+
+        val outputOptions = ImageCapture.OutputFileOptions
+            .Builder(contentResolver, imageUri, ContentValues())
+            .build()
 
         imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
+
                 override fun onError(exc: ImageCaptureException) {
-                    showErrorDialog("Nie udało się zapisać zdjęcia")
+                    showErrorDialog("Błąd zapisu zdjęcia: ${exc.message}")
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    uploadToApi(photoFile)
+                    val savedUri = output.savedUri ?: imageUri
+                    showLoading(true)
+                    uploadToApi(savedUri)
                 }
             }
         )
     }
 
-    private fun uploadToApi(photoFile: File) {
+    private fun createImageUri(): Uri? {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME,
+                "Plant_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/PlantScanner"
+            )
+        }
+
+        return contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        )
+    }
+
+    private fun uploadToApi(imageUri: Uri) {
+
+        val inputStream = contentResolver.openInputStream(imageUri)
+        val tempFile = File.createTempFile("upload_", ".jpg", cacheDir)
+
+        inputStream?.use { input ->
+            tempFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+
         val client = OkHttpClient()
 
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
-                "images", photoFile.name,
-                photoFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+                "images",
+                tempFile.name,
+                tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
             )
             .addFormDataPart("organs", "leaf")
             .build()
@@ -131,19 +175,26 @@ class CameraActivity : AppCompatActivity() {
             .build()
 
         client.newCall(request).enqueue(object : Callback {
+
             override fun onFailure(call: Call, e: IOException) {
-                showErrorDialog("Brak połączenia z internetem lub błąd serwera.")
+                runOnUiThread {
+                    showLoading(false)
+                    showErrorDialog("Brak połączenia z internetem lub błąd serwera.")
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (!response.isSuccessful) {
-                        showErrorDialog("Błąd połączenia z serwerem. Spróbuj ponownie.")
+                        runOnUiThread {
+                            showLoading(false)
+                            showErrorDialog("Błąd połączenia z serwerem. Spróbuj ponownie.")
+                        }
                         return
                     }
 
                     val jsonResponse = response.body?.string()
-                    val jsonObject = JSONObject(jsonResponse ?: "")
+                    val jsonObject = JSONObject(jsonResponse ?: "{}")
                     val results = jsonObject.getJSONArray("results")
 
                     if (results.length() > 0) {
@@ -153,15 +204,19 @@ class CameraActivity : AppCompatActivity() {
                         val score = best.getDouble("score")
 
                         runOnUiThread {
+                            showLoading(false)
                             val intent = Intent(this@CameraActivity, DescriptionActivity::class.java).apply {
                                 putExtra("species_name", species)
                                 putExtra("confidence", score)
-                                putExtra("image_uri", Uri.fromFile(photoFile).toString())
+                                putExtra("image_uri", imageUri.toString()) // ← URI z galerii
                             }
                             startActivity(intent)
                         }
                     } else {
-                        showErrorDialog("Nie rozpoznano rośliny")
+                        runOnUiThread {
+                            showLoading(false)
+                            showErrorDialog("Nie rozpoznano rośliny")
+                        }
                     }
                 }
             }

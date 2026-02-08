@@ -12,7 +12,7 @@ import okhttp3.*
 import org.json.JSONObject
 import java.io.IOException
 
-class DescriptionActivity : AppCompatActivity() {
+class DescriptionActivity : BaseActivity() {
 
     private val trefleToken = BuildConfig.TREFLE_API_KEY
 
@@ -35,9 +35,11 @@ class DescriptionActivity : AppCompatActivity() {
         speciesConfidenceText.text = "Prawdopodobieństwo: ${(confidence * 100).toInt()}%"
 
         imageUri?.let {
+            val uri = Uri.parse(it)
             Glide.with(this)
-                .load(Uri.parse(it))
+                .load(uri)
                 .centerCrop()
+                .dontTransform()
                 .into(imageView)
         }
 

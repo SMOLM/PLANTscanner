@@ -32,4 +32,38 @@
         app:layout_constraintBottom_toBottomOf="@id/backButton"
         app:layout_constraintHorizontal_bias="0" />
 
+    <TextView
+        android:id="@+id/fontLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Rozmiar tekstu"
+        android:textColor="@color/white"
+        android:textSize="18sp"
+        app:layout_constraintTop_toBottomOf="@id/settingsTitle"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="40dp"/>
+
+    <SeekBar
+        android:id="@+id/fontSeekBar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:max="4"
+        app:layout_constraintTop_toBottomOf="@id/fontLabel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"/>
+
+    <TextView
+        android:id="@+id/fontValue"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/white"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/fontSeekBar"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="8dp"/>
+
 </androidx.constraintlayout.widget.ConstraintLayout>
