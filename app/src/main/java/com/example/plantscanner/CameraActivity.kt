@@ -80,7 +80,9 @@ class CameraActivity : BaseActivity() {
             }
 
             imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .setJpegQuality(95)
+                .setTargetRotation(viewFinder.display.rotation)
                 .build()
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -98,18 +100,14 @@ class CameraActivity : BaseActivity() {
         }
     }
     private fun takePhoto() {
-        val imageCapture = imageCapture ?: return
-
-        val imageUri = createImageUri()
-
-        if (imageUri == null) {
-            showErrorDialog("Błąd tworzenia pliku zdjęcia")
+        val imageCapture = imageCapture ?: run {
+            showErrorDialog("Kamera jeszcze niegotowa")
             return
         }
 
-        val outputOptions = ImageCapture.OutputFileOptions
-            .Builder(contentResolver, imageUri, ContentValues())
-            .build()
+        val tempFile = File.createTempFile("camera_", ".jpg", cacheDir)
+
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(tempFile).build()
 
         imageCapture.takePicture(
             outputOptions,
@@ -121,29 +119,40 @@ class CameraActivity : BaseActivity() {
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val savedUri = output.savedUri ?: imageUri
+                    val imageUri = saveImageToGallery(tempFile)
+                    if (imageUri == null) {
+                        showErrorDialog("Nie udało się zapisać zdjęcia w galerii")
+                        return
+                    }
+
                     showLoading(true)
-                    uploadToApi(savedUri)
+                    uploadToApi(imageUri)
                 }
             }
         )
     }
 
-    private fun createImageUri(): Uri? {
+    private fun saveImageToGallery(file: File): Uri? {
         val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME,
-                "Plant_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.Images.Media.DISPLAY_NAME, "Plant_${System.currentTimeMillis()}.jpg")
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(
-                MediaStore.Images.Media.RELATIVE_PATH,
-                Environment.DIRECTORY_PICTURES + "/PlantScanner"
-            )
+            put(MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/PlantScanner")
         }
 
-        return contentResolver.insert(
+        val uri = contentResolver.insert(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             contentValues
-        )
+        ) ?: return null
+
+        contentResolver.openOutputStream(uri)?.use { output ->
+            file.inputStream().use { input ->
+                input.copyTo(output)
+            }
+        }
+
+        file.delete()
+        return uri
     }
 
     private fun uploadToApi(imageUri: Uri) {
